@@ -1,26 +1,16 @@
-#[cfg(all(not(feature = "nightly"), not(feature = "wide")))]
-use crate::software_simd::*;
-#[cfg(feature = "nightly")]
-use core::simd::{simd_swizzle, u32x8, u64x4};
-#[cfg(all(not(feature = "nightly"), feature = "wide"))]
-use {
-    crate::wide_support::*,
-    wide::{u32x8, u64x4},
-};
+use crate::scalar_backend;
 
-#[cfg(not(feature = "nightly"))]
-macro_rules! simd_swizzle {
-    ($simd:expr, $shuffle:expr) => {
-        $shuffle.map(|i| $simd.to_array()[i])
-    };
-}
-
+#[cfg(target_arch = "aarch64")]
+use crate::neon_backend;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+use crate::{avx2_backend, sse2_backend};
 
 pub const STATE_LANES: usize = 4;
 pub const STATE_SIZE: usize = 4;
+pub(crate) const BLOCK_BYTES: usize =
+    STATE_LANES * STATE_SIZE * size_of::<u64>();
 
-
-const PHI: [u64; 16] = [
+pub(crate) const PHI: [u64; 16] = [
     0x9E3779B97F4A7C15,
     0xF39CC0605CEDC834,
     0x1082276BF3A27251,
@@ -39,170 +29,185 @@ const PHI: [u64; 16] = [
     0xFEC507705E4AE6E5,
 ];
 
-/// The raw ShiShuA implementation. Random values are generated in `[u64; 16]` chunks with [round_unpack](ShiShuAState::round_unpack).
+#[derive(Copy, Clone)]
+enum StateImpl {
+    Scalar(scalar_backend::State),
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Sse2(sse2_backend::State),
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Avx2(avx2_backend::State),
+    #[cfg(target_arch = "aarch64")]
+    Neon(neon_backend::State),
+}
+
+/// The raw ShiShuA implementation.
+///
+/// `new` picks the fastest available backend at runtime where stable
+/// `no_std` runtime detection is available. Use the explicit constructors to
+/// force a specific backend for benchmarking.
 #[derive(Copy, Clone)]
 pub struct ShiShuAState {
-    state: [u64x4; STATE_SIZE],
-    output: [u64x4; STATE_SIZE],
-    counter: u64x4,
+    inner: StateImpl,
 }
 
 impl ShiShuAState {
     pub fn new(seed: [u64; STATE_LANES]) -> Self {
-        const STEPS: usize = 13;
-        const ROUNDS: usize = 1;
-
-        let mut buffer = [0u64; STATE_LANES * STATE_SIZE * ROUNDS];
-
-        let mut state = ShiShuAState {
-            state: [
-                u64x4::from([
-                    PHI[3],
-                    PHI[2] ^ seed[1],
-                    PHI[1],
-                    PHI[0] ^ seed[0],
-                ]),
-                u64x4::from([
-                    PHI[7],
-                    PHI[6] ^ seed[3],
-                    PHI[5],
-                    PHI[4] ^ seed[2],
-                ]),
-                u64x4::from([
-                    PHI[11],
-                    PHI[10] ^ seed[3],
-                    PHI[9],
-                    PHI[8] ^ seed[2],
-                ]),
-                u64x4::from([
-                    PHI[15],
-                    PHI[14] ^ seed[1],
-                    PHI[13],
-                    PHI[12] ^ seed[0],
-                ]),
-            ],
-            output: [u64x4::splat(0); 4],
-            counter: u64x4::splat(0),
-        };
-
-        for _ in 0..STEPS {
-            state.generate(&mut buffer);
-            state.state[0] = state.output[3];
-            state.state[1] = state.output[2];
-            state.state[2] = state.output[1];
-            state.state[3] = state.output[0];
-        }
-
-        state
-    }
-
-    fn generate(&mut self, output_slice: &mut [u64]) {
-        assert_eq!(output_slice.len() % (STATE_LANES * STATE_SIZE), 0);
-
-        for output_chunk in
-            output_slice.chunks_exact_mut(STATE_LANES * STATE_SIZE)
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
-            let output = self.round_unpack();
-            output_chunk.copy_from_slice(&output);
-        }
-    }
-
-    pub fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
-        let raw = self.round();
-        let mut output = [0u64; STATE_SIZE * STATE_LANES];
-
-        for (group, value) in raw.iter().enumerate() {
-            let group_slice_index = group * STATE_LANES;
-            for i in 0..STATE_LANES {
-                output[group_slice_index + i] =
-                    value.to_array()[STATE_LANES - 1 - i];
+            if Self::is_avx2_available() {
+                return unsafe { Self::new_avx2(seed) };
+            }
+            if Self::is_sse2_available() {
+                return unsafe { Self::new_sse2(seed) };
             }
         }
 
-        output
-    }
-
-    #[inline(always)]
-    fn round(&mut self) -> [u64x4; STATE_SIZE] {
-        const fn correct_index(index: usize) -> usize {
-            (u32x8::LEN - 1 - index) ^ 1
+        #[cfg(target_arch = "aarch64")]
+        {
+            unsafe { Self::new_neon(seed) }
         }
 
-        // Shuffle values work differently in Rust than in the C source.
-        //
-        // High and low 32 bits are flipped.
-        // Indexing is the other way around
-        //
-        // I spent quite some time figuring this out.
-        const SHUFFLE: [[usize; 8]; 2] = [
-            // [4, 3, 2, 1, 0, 7, 6, 5],
-            [
-                correct_index(3),
-                correct_index(4),
-                correct_index(1),
-                correct_index(2),
-                correct_index(7),
-                correct_index(0),
-                correct_index(5),
-                correct_index(6),
-            ],
-            // [2, 1, 0, 7, 6, 5, 4, 3],
-            [
-                correct_index(1),
-                correct_index(2),
-                correct_index(7),
-                correct_index(0),
-                correct_index(5),
-                correct_index(6),
-                correct_index(3),
-                correct_index(4),
-            ],
-        ];
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            Self::new_scalar(seed)
+        }
+    }
 
-        let increment = u64x4::from([1, 3, 5, 7]);
+    pub fn new_scalar(seed: [u64; STATE_LANES]) -> Self {
+        Self {
+            inner: StateImpl::Scalar(scalar_backend::State::new(seed)),
+        }
+    }
 
-        let ShiShuAState {
-            state,
-            output,
-            counter,
-        } = self;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub unsafe fn new_sse2(seed: [u64; STATE_LANES]) -> Self {
+        Self {
+            inner: StateImpl::Sse2(sse2_backend::State::new(seed)),
+        }
+    }
 
-        // Perform the round
-        state[1] += *counter;
-        state[3] += *counter;
-        *counter += increment;
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub unsafe fn new_avx2(seed: [u64; STATE_LANES]) -> Self {
+        Self {
+            inner: StateImpl::Avx2(avx2_backend::State::new(seed)),
+        }
+    }
 
-        let u0 = state[0] >> 1;
-        let u1 = state[1] >> 3;
-        let u2 = state[2] >> 1;
-        let u3 = state[3] >> 3;
+    #[cfg(target_arch = "aarch64")]
+    pub unsafe fn new_neon(seed: [u64; STATE_LANES]) -> Self {
+        Self {
+            inner: StateImpl::Neon(neon_backend::State::new(seed)),
+        }
+    }
 
-        macro_rules! shuffle_u64_as_u32 {
-            ($data:expr, $shuffle:expr) => {{
-                let as_u32: u32x8 = bytemuck::cast($data);
-                let shuffled = simd_swizzle!(as_u32, $shuffle);
-                bytemuck::cast(shuffled)
-            }};
+    pub fn backend_name(&self) -> &'static str {
+        match &self.inner {
+            StateImpl::Scalar(_) => "scalar",
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Sse2(_) => "sse2",
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Avx2(_) => "avx2",
+            #[cfg(target_arch = "aarch64")]
+            StateImpl::Neon(_) => "neon",
+        }
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub fn is_sse2_available() -> bool {
+        sse2_available()
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub fn is_avx2_available() -> bool {
+        avx2_available()
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    pub fn is_neon_available() -> bool {
+        true
+    }
+
+    pub fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
+        match &mut self.inner {
+            StateImpl::Scalar(state) => state.round_unpack(),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Sse2(state) => unsafe { state.round_unpack() },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Avx2(state) => unsafe { state.round_unpack() },
+            #[cfg(target_arch = "aarch64")]
+            StateImpl::Neon(state) => unsafe { state.round_unpack() },
+        }
+    }
+
+    #[cfg(feature = "rand")]
+    pub(crate) fn generate_bytes(&mut self, output_slice: &mut [u8]) {
+        match &mut self.inner {
+            StateImpl::Scalar(state) => state.generate_bytes(output_slice),
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Sse2(state) => unsafe {
+                state.generate_bytes(output_slice)
+            },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Avx2(state) => unsafe {
+                state.generate_bytes(output_slice)
+            },
+            #[cfg(target_arch = "aarch64")]
+            StateImpl::Neon(state) => unsafe {
+                state.generate_bytes(output_slice)
+            },
+        }
+    }
+}
+
+#[cfg(target_arch = "x86")]
+use core::arch::x86::{__cpuid, __cpuid_count, _xgetbv};
+#[cfg(target_arch = "x86_64")]
+use core::arch::x86_64::{__cpuid, __cpuid_count, _xgetbv};
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn sse2_available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        true
+    }
+
+    #[cfg(target_arch = "x86")]
+    unsafe {
+        (__cpuid(1).edx & (1 << 26)) != 0
+    }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn avx2_available() -> bool {
+    unsafe {
+        if __cpuid(0).eax < 7 {
+            return false;
         }
 
+        let leaf1 = __cpuid(1);
+        let avx = (leaf1.ecx & (1 << 28)) != 0;
+        let osxsave = (leaf1.ecx & (1 << 27)) != 0;
+        if !avx || !osxsave {
+            return false;
+        }
 
-        let t0: u64x4 = shuffle_u64_as_u32!(state[0], SHUFFLE[0]);
-        let t1: u64x4 = shuffle_u64_as_u32!(state[1], SHUFFLE[1]);
-        let t2: u64x4 = shuffle_u64_as_u32!(state[2], SHUFFLE[0]);
-        let t3: u64x4 = shuffle_u64_as_u32!(state[3], SHUFFLE[1]);
+        let xcr0 = _xgetbv(0);
+        if (xcr0 & 0b110) != 0b110 {
+            return false;
+        }
 
-        state[0] = t0 + u0;
-        state[1] = t1 + u1;
-        state[2] = t2 + u2;
-        state[3] = t3 + u3;
-
-        let result = *output;
-
-        output[0] = u0 ^ t1;
-        output[1] = u2 ^ t3;
-        output[2] = state[0] ^ state[3];
-        output[3] = state[2] ^ state[1];
-
-        result
+        (__cpuid_count(7, 0).ebx & (1 << 5)) != 0
     }
+}
+
+pub(crate) fn bytes_to_u64s(
+    bytes: &[u8; BLOCK_BYTES],
+) -> [u64; STATE_SIZE * STATE_LANES] {
+    let mut output = [0u64; STATE_SIZE * STATE_LANES];
+    for (index, chunk) in bytes.chunks_exact(size_of::<u64>()).enumerate() {
+        let mut value = [0u8; size_of::<u64>()];
+        value.copy_from_slice(chunk);
+        output[index] = u64::from_le_bytes(value);
+    }
+    output
 }

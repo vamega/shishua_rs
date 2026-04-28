@@ -1,16 +1,15 @@
-#![cfg_attr(feature = "nightly", feature(portable_simd))]
 #![no_std]
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod avx2_backend;
 pub(crate) mod core;
+#[cfg(target_arch = "aarch64")]
+mod neon_backend;
 #[cfg(feature = "rand")]
 pub(crate) mod rand;
-
-
-#[cfg(all(not(feature = "nightly"), feature = "wide"))]
-mod wide_support;
-
-#[cfg(all(not(feature = "nightly"), not(feature = "wide")))]
-mod software_simd;
+mod scalar_backend;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod sse2_backend;
 
 pub use crate::core::ShiShuAState;
 #[cfg(feature = "rand")]

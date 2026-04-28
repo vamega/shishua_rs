@@ -18,26 +18,45 @@ pub struct ShiShuARng {
 
 impl ShiShuARng {
     pub fn new(seed: [u64; STATE_LANES]) -> Self {
+        Self::from_state(ShiShuAState::new(seed))
+    }
+
+    pub fn from_state(state: ShiShuAState) -> Self {
         ShiShuARng {
-            state: ShiShuAState::new(seed),
+            state,
             buffer: [0; STATE_WRAPPER_BUFFER_SIZE],
             buffer_index: STATE_WRAPPER_BUFFER_SIZE,
         }
+    }
+
+    pub fn new_scalar(seed: [u64; STATE_LANES]) -> Self {
+        Self::from_state(ShiShuAState::new_scalar(seed))
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub unsafe fn new_sse2(seed: [u64; STATE_LANES]) -> Self {
+        Self::from_state(ShiShuAState::new_sse2(seed))
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub unsafe fn new_avx2(seed: [u64; STATE_LANES]) -> Self {
+        Self::from_state(ShiShuAState::new_avx2(seed))
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    pub unsafe fn new_neon(seed: [u64; STATE_LANES]) -> Self {
+        Self::from_state(ShiShuAState::new_neon(seed))
+    }
+
+    pub fn backend_name(&self) -> &'static str {
+        self.state.backend_name()
     }
 
     #[inline(always)]
     pub fn get_byte(&mut self) -> u8 {
         if self.buffer_index >= STATE_WRAPPER_BUFFER_SIZE {
             self.buffer_index = 0;
-
-            let data = self.state.round_unpack();
-
-            let buffer = &mut self.buffer.as_mut();
-            for (index, value) in data.iter().enumerate() {
-                buffer[(index * size_of::<u64>())
-                    ..((index + 1) * size_of::<u64>())]
-                    .copy_from_slice(&value.to_le_bytes());
-            }
+            self.state.generate_bytes(&mut self.buffer);
         }
 
         let index = self.buffer_index;
@@ -61,22 +80,22 @@ impl RngCore for ShiShuARng {
     }
 
     fn fill_bytes(&mut self, mut dest: &mut [u8]) {
-        while self.buffer_index < STATE_WRAPPER_BUFFER_SIZE && dest.len() > 0 {
-            dest[0] = self.buffer[self.buffer_index];
-            self.buffer_index += 1;
-            dest = &mut dest[1..];
+        let buffered =
+            (STATE_WRAPPER_BUFFER_SIZE - self.buffer_index).min(dest.len());
+        if buffered > 0 {
+            dest[..buffered].copy_from_slice(
+                &self.buffer[self.buffer_index..self.buffer_index + buffered],
+            );
+            self.buffer_index += buffered;
+            dest = &mut dest[buffered..];
         }
 
-        while dest.len() >= STATE_WRAPPER_BUFFER_SIZE {
-            let data = self.state.round_unpack();
-
-            for (index, value) in data.iter().enumerate() {
-                dest[(index * size_of::<u64>())
-                    ..((index + 1) * size_of::<u64>())]
-                    .copy_from_slice(&value.to_le_bytes());
-            }
-
-            dest = &mut dest[STATE_WRAPPER_BUFFER_SIZE..];
+        let block_bytes =
+            dest.len() / STATE_WRAPPER_BUFFER_SIZE * STATE_WRAPPER_BUFFER_SIZE;
+        if block_bytes > 0 {
+            let (blocks, tail) = dest.split_at_mut(block_bytes);
+            self.state.generate_bytes(blocks);
+            dest = tail;
         }
 
         for byte in dest.iter_mut() {
@@ -89,6 +108,14 @@ impl SeedableRng for ShiShuARng {
     type Seed = [u8; STATE_LANES * size_of::<u64>()];
 
     fn from_seed(seed: Self::Seed) -> Self {
-        Self::new(bytemuck::cast(seed))
+        let mut words = [0u64; STATE_LANES];
+        for (word, chunk) in
+            words.iter_mut().zip(seed.chunks_exact(size_of::<u64>()))
+        {
+            let mut bytes = [0u8; size_of::<u64>()];
+            bytes.copy_from_slice(chunk);
+            *word = u64::from_le_bytes(bytes);
+        }
+        Self::new(words)
     }
 }

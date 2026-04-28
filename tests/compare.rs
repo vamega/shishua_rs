@@ -1,10 +1,14 @@
-use rand_core::RngCore;
-use shishua::ShiShuARng;
+#![cfg(feature = "rand")]
 
+use rand_core::RngCore;
+use shishua::{ShiShuARng, ShiShuAState};
+
+#[cfg(feature = "__intern_c_bindings")]
 fn to_seed(base_seed: u64) -> [u64; 4] {
     [base_seed, base_seed + 1, base_seed + 2, base_seed + 3]
 }
 
+#[cfg(feature = "__intern_c_bindings")]
 fn generate_c(seed: [u64; 4], length: usize) -> Vec<u8> {
     let mut generate_bytes = length;
     let excess = length % 512;
@@ -38,13 +42,18 @@ fn generate_c(seed: [u64; 4], length: usize) -> Vec<u8> {
 }
 
 fn generate_rust(seed: [u64; 4], length: usize) -> Vec<u8> {
+    generate_rust_state(ShiShuAState::new(seed), length)
+}
+
+fn generate_rust_state(state: ShiShuAState, length: usize) -> Vec<u8> {
     let mut buffer = vec![0u8; length];
 
-    ShiShuARng::new(seed).fill_bytes(&mut buffer);
+    ShiShuARng::from_state(state).fill_bytes(&mut buffer);
 
     buffer
 }
 
+#[cfg(feature = "__intern_c_bindings")]
 fn compare(seed: [u64; 4], length: usize) {
     dbg!(length);
     let c_value = generate_c(seed.clone(), length);
@@ -61,24 +70,28 @@ fn compare(seed: [u64; 4], length: usize) {
 }
 
 #[test]
+#[cfg(feature = "__intern_c_bindings")]
 #[cfg_attr(miri, ignore)]
 fn native_works() {
     generate_c(to_seed(0x123), 8);
 }
 
 #[test]
+#[cfg(feature = "__intern_c_bindings")]
 #[cfg_attr(miri, ignore)]
 fn native_compare_zero() {
     compare([0, 0, 0, 0], 4 * 4 * 8);
 }
 
 #[test]
+#[cfg(feature = "__intern_c_bindings")]
 #[cfg_attr(miri, ignore)]
 fn native_compare_1234() {
     compare(to_seed(0x1234_5678_9ABC_DEF0), 4 * 4 * 8);
 }
 
 #[test]
+#[cfg(feature = "__intern_c_bindings")]
 #[cfg_attr(miri, ignore)]
 fn native_compare_long() {
     compare(to_seed(0x1234_5678_9ABC_DEF0), 4 * 4 * 8 * 100);
@@ -104,6 +117,59 @@ fn hard_coded_zero() {
 }
 
 #[test]
+fn hard_coded_zero_scalar() {
+    assert_eq!(
+        &COMPARE_ZERO as &[u8],
+        generate_rust_state(ShiShuAState::new_scalar([0, 0, 0, 0]), 4 * 4 * 8)
+            .as_slice()
+    );
+}
+
+#[test]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn hard_coded_zero_sse2() {
+    if ShiShuAState::is_sse2_available() {
+        assert_eq!(
+            &COMPARE_ZERO as &[u8],
+            generate_rust_state(
+                unsafe { ShiShuAState::new_sse2([0, 0, 0, 0]) },
+                4 * 4 * 8,
+            )
+            .as_slice()
+        );
+    }
+}
+
+#[test]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn hard_coded_zero_avx2() {
+    if ShiShuAState::is_avx2_available() {
+        assert_eq!(
+            &COMPARE_ZERO as &[u8],
+            generate_rust_state(
+                unsafe { ShiShuAState::new_avx2([0, 0, 0, 0]) },
+                4 * 4 * 8,
+            )
+            .as_slice()
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn hard_coded_zero_neon() {
+    assert_eq!(
+        &COMPARE_ZERO as &[u8],
+        generate_rust_state(
+            unsafe { ShiShuAState::new_neon([0, 0, 0, 0]) },
+            4 * 4 * 8,
+        )
+        .as_slice()
+    );
+}
+
+#[test]
+#[cfg(feature = "__intern_c_bindings")]
 #[cfg_attr(miri, ignore)]
 fn hard_coded_zero_c() {
     assert_eq!(
