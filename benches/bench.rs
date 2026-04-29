@@ -37,6 +37,12 @@ pub fn benchmark_shisuha(c: &mut Criterion) {
         let mut scalar = ShiShuARng::new_scalar(seed);
         bench_rng(&mut group, "shishua_rs_scalar", size, &mut scalar);
 
+        #[cfg(target_arch = "aarch64")]
+        {
+            let mut neon = unsafe { ShiShuARng::new_neon(seed) };
+            bench_rng(&mut group, "shishua_rs_neon", size, &mut neon);
+        }
+
         #[cfg(all(
             any(target_arch = "x86", target_arch = "x86_64"),
             not(miri)
