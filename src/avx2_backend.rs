@@ -47,8 +47,9 @@ impl State {
             counter: zero,
         };
 
+        let mut buffer = [0u8; BLOCK_BYTES];
         for _ in 0..13 {
-            state.round();
+            state.generate_bytes_inner(&mut buffer);
             state.state[0] = state.output[3];
             state.state[1] = state.output[2];
             state.state[2] = state.output[1];
@@ -128,40 +129,5 @@ impl State {
         self.state[2] = s2;
         self.state[3] = s3;
         self.counter = counter;
-    }
-
-    #[target_feature(enable = "avx2")]
-    unsafe fn round(&mut self) -> [__m256i; STATE_SIZE] {
-        let result = self.output;
-
-        let shuffle0 = _mm256_set_epi32(4, 3, 2, 1, 0, 7, 6, 5);
-        let shuffle1 = _mm256_set_epi32(2, 1, 0, 7, 6, 5, 4, 3);
-        let increment = _mm256_set_epi64x(1, 3, 5, 7);
-
-        self.state[1] = _mm256_add_epi64(self.state[1], self.counter);
-        self.state[3] = _mm256_add_epi64(self.state[3], self.counter);
-        self.counter = _mm256_add_epi64(self.counter, increment);
-
-        let u0 = _mm256_srli_epi64::<1>(self.state[0]);
-        let u1 = _mm256_srli_epi64::<3>(self.state[1]);
-        let u2 = _mm256_srli_epi64::<1>(self.state[2]);
-        let u3 = _mm256_srli_epi64::<3>(self.state[3]);
-
-        let t0 = _mm256_permutevar8x32_epi32(self.state[0], shuffle0);
-        let t1 = _mm256_permutevar8x32_epi32(self.state[1], shuffle1);
-        let t2 = _mm256_permutevar8x32_epi32(self.state[2], shuffle0);
-        let t3 = _mm256_permutevar8x32_epi32(self.state[3], shuffle1);
-
-        self.state[0] = _mm256_add_epi64(t0, u0);
-        self.state[1] = _mm256_add_epi64(t1, u1);
-        self.state[2] = _mm256_add_epi64(t2, u2);
-        self.state[3] = _mm256_add_epi64(t3, u3);
-
-        self.output[0] = _mm256_xor_si256(u0, t1);
-        self.output[1] = _mm256_xor_si256(u2, t3);
-        self.output[2] = _mm256_xor_si256(self.state[0], self.state[3]);
-        self.output[3] = _mm256_xor_si256(self.state[2], self.state[1]);
-
-        result
     }
 }

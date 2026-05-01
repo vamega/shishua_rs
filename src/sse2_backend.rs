@@ -31,8 +31,9 @@ impl State {
             counter: [zero; 2],
         };
 
+        let mut buffer = [0u8; BLOCK_BYTES];
         for _ in 0..13 {
-            state.round();
+            state.generate_bytes_inner(&mut buffer);
             state.state[0] = state.output[6];
             state.state[1] = state.output[7];
             state.state[2] = state.output[4];
@@ -127,50 +128,6 @@ impl State {
         self.counter[0] = counter_lo;
         self.counter[1] = counter_hi;
     }
-
-    #[target_feature(enable = "sse2")]
-    unsafe fn round(&mut self) -> [__m128i; 8] {
-        let result = self.output;
-        let increment_lo = set_epi64x(5, 7);
-        let increment_hi = set_epi64x(1, 3);
-        let mut counter_lo = self.counter[0];
-        let mut counter_hi = self.counter[1];
-
-        for j in 0..2 {
-            let mut s_lo = self.state[4 * j];
-            let mut s_hi = self.state[4 * j + 1];
-            let u0_lo = _mm_srli_epi64::<1>(s_lo);
-            let u0_hi = _mm_srli_epi64::<1>(s_hi);
-            let t0_lo = alignr_4(s_lo, s_hi);
-            let t0_hi = alignr_4(s_hi, s_lo);
-            self.state[4 * j] = _mm_add_epi64(t0_lo, u0_lo);
-            self.state[4 * j + 1] = _mm_add_epi64(t0_hi, u0_hi);
-
-            s_lo = _mm_add_epi64(self.state[4 * j + 2], counter_lo);
-            s_hi = _mm_add_epi64(self.state[4 * j + 3], counter_hi);
-            let u1_lo = _mm_srli_epi64::<3>(s_lo);
-            let u1_hi = _mm_srli_epi64::<3>(s_hi);
-            let t1_lo = alignr_12(s_hi, s_lo);
-            let t1_hi = alignr_12(s_lo, s_hi);
-            self.state[4 * j + 2] = _mm_add_epi64(t1_lo, u1_lo);
-            self.state[4 * j + 3] = _mm_add_epi64(t1_hi, u1_hi);
-
-            self.output[2 * j] = _mm_xor_si128(u0_lo, t1_lo);
-            self.output[2 * j + 1] = _mm_xor_si128(u0_hi, t1_hi);
-        }
-
-        self.output[4] = _mm_xor_si128(self.state[0], self.state[6]);
-        self.output[5] = _mm_xor_si128(self.state[1], self.state[7]);
-        self.output[6] = _mm_xor_si128(self.state[4], self.state[2]);
-        self.output[7] = _mm_xor_si128(self.state[5], self.state[3]);
-
-        counter_lo = _mm_add_epi64(counter_lo, increment_lo);
-        counter_hi = _mm_add_epi64(counter_hi, increment_hi);
-        self.counter[0] = counter_lo;
-        self.counter[1] = counter_hi;
-
-        result
-    }
 }
 
 #[target_feature(enable = "sse2")]
@@ -191,14 +148,4 @@ unsafe fn load_phi(index: usize) -> __m128i {
 #[target_feature(enable = "sse2")]
 unsafe fn xor(lhs: __m128i, rhs: __m128i) -> __m128i {
     _mm_xor_si128(lhs, rhs)
-}
-
-#[target_feature(enable = "sse2")]
-unsafe fn alignr_4(hi: __m128i, lo: __m128i) -> __m128i {
-    _mm_or_si128(_mm_slli_si128::<12>(hi), _mm_srli_si128::<4>(lo))
-}
-
-#[target_feature(enable = "sse2")]
-unsafe fn alignr_12(hi: __m128i, lo: __m128i) -> __m128i {
-    _mm_or_si128(_mm_slli_si128::<4>(hi), _mm_srli_si128::<12>(lo))
 }

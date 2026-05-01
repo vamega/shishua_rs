@@ -27,8 +27,9 @@ impl State {
             counter: [zero; 2],
         };
 
+        let mut buffer = [0u8; BLOCK_BYTES];
         for _ in 0..13 {
-            state.round();
+            state.generate_bytes_inner(&mut buffer);
             state.state[0] = state.output[6];
             state.state[1] = state.output[7];
             state.state[2] = state.output[4];
@@ -107,49 +108,6 @@ impl State {
         self.output = output;
         self.counter[0] = counter_lo;
         self.counter[1] = counter_hi;
-    }
-
-    unsafe fn round(&mut self) -> [uint64x2_t; 8] {
-        let result = self.output;
-        let increment_lo = set_u64x2(7, 5);
-        let increment_hi = set_u64x2(3, 1);
-        let mut counter_lo = self.counter[0];
-        let mut counter_hi = self.counter[1];
-
-        for j in 0..2 {
-            let s0_lo = self.state[4 * j];
-            let s0_hi = self.state[4 * j + 1];
-            let s1_lo = vaddq_u64(self.state[4 * j + 2], counter_lo);
-            let s1_hi = vaddq_u64(self.state[4 * j + 3], counter_hi);
-
-            let t0_lo = vext_u64x2(s0_hi, s0_lo, 4);
-            let t0_hi = vext_u64x2(s0_lo, s0_hi, 4);
-            let t1_lo = vext_u64x2(s1_lo, s1_hi, 12);
-            let t1_hi = vext_u64x2(s1_hi, s1_lo, 12);
-
-            let u_lo = vshrq_n_u64::<1>(s0_lo);
-            let u_hi = vshrq_n_u64::<1>(s0_hi);
-
-            self.state[4 * j] = vaddq_u64(t0_lo, u_lo);
-            self.state[4 * j + 1] = vaddq_u64(t0_hi, u_hi);
-            self.state[4 * j + 2] = vaddq_u64(t1_lo, vshrq_n_u64::<3>(s1_lo));
-            self.state[4 * j + 3] = vaddq_u64(t1_hi, vshrq_n_u64::<3>(s1_hi));
-
-            self.output[2 * j] = veorq_u64(u_lo, t1_lo);
-            self.output[2 * j + 1] = veorq_u64(u_hi, t1_hi);
-        }
-
-        self.output[4] = veorq_u64(self.state[0], self.state[6]);
-        self.output[5] = veorq_u64(self.state[1], self.state[7]);
-        self.output[6] = veorq_u64(self.state[2], self.state[4]);
-        self.output[7] = veorq_u64(self.state[3], self.state[5]);
-
-        counter_lo = vaddq_u64(counter_lo, increment_lo);
-        counter_hi = vaddq_u64(counter_hi, increment_hi);
-        self.counter[0] = counter_lo;
-        self.counter[1] = counter_hi;
-
-        result
     }
 }
 
