@@ -10,6 +10,7 @@ repository = "https://github.com/dbartussek/shishua_rs"
 [[bench]]
 name = "bench"
 harness = false
+required-features = ["rand"]
 
 
 [features]

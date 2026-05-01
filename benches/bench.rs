@@ -2,7 +2,9 @@ use criterion::{
     criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
 use rand_core::RngCore;
-use shishua::{ShiShuARng, ShiShuAState};
+use shishua::ShiShuARng;
+#[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), not(miri)))]
+use shishua::ShiShuAState;
 
 #[cfg(feature = "__intern_c_bindings")]
 extern "C" {

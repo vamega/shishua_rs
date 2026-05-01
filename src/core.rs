@@ -80,6 +80,12 @@ impl ShiShuAState {
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    /// Creates a state that always uses the SSE2 backend.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the current CPU supports SSE2 before using
+    /// the returned state. Prefer [`ShiShuAState::new`] for runtime dispatch.
     pub unsafe fn new_sse2(seed: [u64; STATE_LANES]) -> Self {
         Self {
             inner: StateImpl::Sse2(sse2_backend::State::new(seed)),
@@ -87,6 +93,13 @@ impl ShiShuAState {
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    /// Creates a state that always uses the AVX2 backend.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the current CPU supports AVX2 and that the
+    /// operating system has enabled AVX register state before using the
+    /// returned state. Prefer [`ShiShuAState::new`] for runtime dispatch.
     pub unsafe fn new_avx2(seed: [u64; STATE_LANES]) -> Self {
         Self {
             inner: StateImpl::Avx2(avx2_backend::State::new(seed)),
@@ -94,6 +107,13 @@ impl ShiShuAState {
     }
 
     #[cfg(target_arch = "aarch64")]
+    /// Creates a state that always uses the NEON backend.
+    ///
+    /// # Safety
+    ///
+    /// This constructor may only be used on targets where the generated binary
+    /// can execute AArch64 NEON instructions. Prefer [`ShiShuAState::new`] for
+    /// backend selection.
     pub unsafe fn new_neon(seed: [u64; STATE_LANES]) -> Self {
         Self {
             inner: StateImpl::Neon(neon_backend::State::new(seed)),

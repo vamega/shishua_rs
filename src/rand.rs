@@ -34,16 +34,36 @@ impl ShiShuARng {
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    /// Creates an RNG that always uses the SSE2 backend.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the current CPU supports SSE2 before using
+    /// the returned RNG. Prefer [`ShiShuARng::new`] for runtime dispatch.
     pub unsafe fn new_sse2(seed: [u64; STATE_LANES]) -> Self {
         Self::from_state(ShiShuAState::new_sse2(seed))
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    /// Creates an RNG that always uses the AVX2 backend.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the current CPU supports AVX2 and that the
+    /// operating system has enabled AVX register state before using the
+    /// returned RNG. Prefer [`ShiShuARng::new`] for runtime dispatch.
     pub unsafe fn new_avx2(seed: [u64; STATE_LANES]) -> Self {
         Self::from_state(ShiShuAState::new_avx2(seed))
     }
 
     #[cfg(target_arch = "aarch64")]
+    /// Creates an RNG that always uses the NEON backend.
+    ///
+    /// # Safety
+    ///
+    /// This constructor may only be used on targets where the generated binary
+    /// can execute AArch64 NEON instructions. Prefer [`ShiShuARng::new`] for
+    /// backend selection.
     pub unsafe fn new_neon(seed: [u64; STATE_LANES]) -> Self {
         Self::from_state(ShiShuAState::new_neon(seed))
     }
