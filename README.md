@@ -9,6 +9,13 @@ uses the NEON backend. The explicit constructors (`new_scalar`, `new_sse2`,
 cargo bench
 ```
 
+To run the local test matrix, including no-default-feature checks and available
+C backend comparisons:
+
+```sh
+cargo run -p xtask -- test-all
+```
+
 The benchmark can compare against the original C implementation when the C
 source is available locally. For example, to compare against the C SSE2 path:
 
