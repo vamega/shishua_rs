@@ -45,6 +45,17 @@ impl ShiShuARng {
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    /// Creates an RNG that always uses the SSSE3 backend.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the current CPU supports SSSE3 before using
+    /// the returned RNG. Prefer [`ShiShuARng::new`] for runtime dispatch.
+    pub unsafe fn new_ssse3(seed: [u64; STATE_LANES]) -> Self {
+        Self::from_state(ShiShuAState::new_ssse3(seed))
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Creates an RNG that always uses the AVX2 backend.
     ///
     /// # Safety

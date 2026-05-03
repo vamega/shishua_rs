@@ -10,6 +10,8 @@ pub(crate) mod rand;
 mod scalar_backend;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod sse2_backend;
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod ssse3_backend;
 
 pub use crate::core::ShiShuAState;
 #[cfg(feature = "rand")]

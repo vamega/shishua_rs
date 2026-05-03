@@ -142,6 +142,21 @@ fn hard_coded_zero_sse2() {
 
 #[test]
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn hard_coded_zero_ssse3() {
+    if ShiShuAState::is_ssse3_available() {
+        assert_eq!(
+            &COMPARE_ZERO as &[u8],
+            generate_rust_state(
+                unsafe { ShiShuAState::new_ssse3([0, 0, 0, 0]) },
+                4 * 4 * 8,
+            )
+            .as_slice()
+        );
+    }
+}
+
+#[test]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn hard_coded_zero_avx2() {
     if ShiShuAState::is_avx2_available() {
         assert_eq!(

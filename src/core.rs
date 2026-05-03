@@ -3,7 +3,7 @@ use crate::scalar_backend;
 #[cfg(target_arch = "aarch64")]
 use crate::neon_backend;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-use crate::{avx2_backend, sse2_backend};
+use crate::{avx2_backend, sse2_backend, ssse3_backend};
 
 pub const STATE_LANES: usize = 4;
 pub const STATE_SIZE: usize = 4;
@@ -35,6 +35,8 @@ enum StateImpl {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     Sse2(sse2_backend::State),
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    Ssse3(ssse3_backend::State),
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     Avx2(avx2_backend::State),
     #[cfg(target_arch = "aarch64")]
     Neon(neon_backend::State),
@@ -56,6 +58,9 @@ impl ShiShuAState {
         {
             if Self::is_avx2_available() {
                 return unsafe { Self::new_avx2(seed) };
+            }
+            if Self::is_ssse3_available() {
+                return unsafe { Self::new_ssse3(seed) };
             }
             if Self::is_sse2_available() {
                 return unsafe { Self::new_sse2(seed) };
@@ -93,6 +98,19 @@ impl ShiShuAState {
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    /// Creates a state that always uses the SSSE3 backend.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the current CPU supports SSSE3 before using
+    /// the returned state. Prefer [`ShiShuAState::new`] for runtime dispatch.
+    pub unsafe fn new_ssse3(seed: [u64; STATE_LANES]) -> Self {
+        Self {
+            inner: StateImpl::Ssse3(ssse3_backend::State::new(seed)),
+        }
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     /// Creates a state that always uses the AVX2 backend.
     ///
     /// # Safety
@@ -126,6 +144,8 @@ impl ShiShuAState {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             StateImpl::Sse2(_) => "sse2",
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Ssse3(_) => "ssse3",
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             StateImpl::Avx2(_) => "avx2",
             #[cfg(target_arch = "aarch64")]
             StateImpl::Neon(_) => "neon",
@@ -135,6 +155,11 @@ impl ShiShuAState {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     pub fn is_sse2_available() -> bool {
         sse2_available()
+    }
+
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    pub fn is_ssse3_available() -> bool {
+        ssse3_available()
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -153,6 +178,8 @@ impl ShiShuAState {
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             StateImpl::Sse2(state) => unsafe { state.round_unpack() },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Ssse3(state) => unsafe { state.round_unpack() },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             StateImpl::Avx2(state) => unsafe { state.round_unpack() },
             #[cfg(target_arch = "aarch64")]
             StateImpl::Neon(state) => unsafe { state.round_unpack() },
@@ -165,6 +192,10 @@ impl ShiShuAState {
             StateImpl::Scalar(state) => state.generate_bytes(output_slice),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
             StateImpl::Sse2(state) => unsafe {
+                state.generate_bytes(output_slice)
+            },
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            StateImpl::Ssse3(state) => unsafe {
                 state.generate_bytes(output_slice)
             },
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -195,6 +226,11 @@ fn sse2_available() -> bool {
     unsafe {
         (__cpuid(1).edx & (1 << 26)) != 0
     }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn ssse3_available() -> bool {
+    sse2_available() && (__cpuid(1).ecx & (1 << 9)) != 0
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

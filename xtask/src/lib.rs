@@ -5,6 +5,7 @@ use std::{
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CpuFeatures {
     pub sse2: bool,
+    pub ssse3: bool,
     pub avx2: bool,
 }
 
@@ -86,6 +87,11 @@ pub fn test_all_plan(
             plan.push(c_binding_step(
                 "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -msse2 -mno-ssse3 -mno-avx -mno-avx2",
             ));
+            if cpu_features.ssse3 {
+                plan.push(c_binding_step(
+                    "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -mssse3 -mno-avx -mno-avx2",
+                ));
+            }
             if cpu_features.avx2 {
                 plan.push(c_binding_step(
                     "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_AVX2 -mavx2 -mtune=haswell",
@@ -96,6 +102,11 @@ pub fn test_all_plan(
             if cpu_features.sse2 {
                 plan.push(c_binding_step(
                     "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -msse2 -mno-ssse3 -mno-avx -mno-avx2",
+                ));
+            }
+            if cpu_features.ssse3 {
+                plan.push(c_binding_step(
+                    "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -mssse3 -mno-avx -mno-avx2",
                 ));
             }
             if cpu_features.avx2 {
@@ -157,6 +168,7 @@ fn detect_cpu_features() -> CpuFeatures {
     {
         CpuFeatures {
             sse2: std::is_x86_feature_detected!("sse2"),
+            ssse3: std::is_x86_feature_detected!("ssse3"),
             avx2: std::is_x86_feature_detected!("avx2"),
         }
     }
@@ -209,6 +221,7 @@ mod tests {
             true,
             CpuFeatures {
                 sse2: true,
+                ssse3: true,
                 avx2: true,
             },
         );
@@ -217,7 +230,27 @@ mod tests {
             "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -msse2 -mno-ssse3 -mno-avx -mno-avx2"
         )));
         assert!(plan.contains(&c_binding_step(
+            "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -mssse3 -mno-avx -mno-avx2"
+        )));
+        assert!(plan.contains(&c_binding_step(
             "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_AVX2 -mavx2 -mtune=haswell"
+        )));
+    }
+
+    #[test]
+    fn x86_64_c_binding_plan_runs_ssse3_when_avx2_is_unavailable() {
+        let plan = test_all_plan(
+            "x86_64",
+            true,
+            CpuFeatures {
+                sse2: true,
+                ssse3: true,
+                avx2: false,
+            },
+        );
+
+        assert!(plan.contains(&c_binding_step(
+            "-O3 -DSHISHUA_TARGET=SHISHUA_TARGET_SSE2 -mssse3 -mno-avx -mno-avx2"
         )));
     }
 }

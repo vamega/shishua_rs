@@ -49,6 +49,11 @@ pub fn benchmark_shisuha(c: &mut Criterion) {
                 bench_rng(&mut group, "shishua_rs_sse2", size, &mut sse2);
             }
 
+            if ShiShuAState::is_ssse3_available() {
+                let mut ssse3 = unsafe { ShiShuARng::new_ssse3(seed) };
+                bench_rng(&mut group, "shishua_rs_ssse3", size, &mut ssse3);
+            }
+
             if ShiShuAState::is_avx2_available() {
                 let mut avx2 = unsafe { ShiShuARng::new_avx2(seed) };
                 bench_rng(&mut group, "shishua_rs_avx2", size, &mut avx2);
