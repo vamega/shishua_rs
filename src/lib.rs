@@ -5,6 +5,8 @@ mod avx2_backend;
 pub(crate) mod core;
 #[cfg(target_arch = "aarch64")]
 mod neon_backend;
+#[cfg(feature = "rand9")]
+pub(crate) mod rand_v9;
 #[cfg(feature = "rand")]
 pub(crate) mod rand;
 mod scalar_backend;
@@ -14,5 +16,11 @@ mod sse2_backend;
 mod ssse3_backend;
 
 pub use crate::core::ShiShuAState;
+#[cfg(all(feature = "rand9", feature = "rand"))]
+pub mod rand9{
+    pub use crate::rand_v9::*;
+}
+#[cfg(all(feature = "rand9", not(feature = "rand")))]
+pub use crate::rand9::Sh;
 #[cfg(feature = "rand")]
 pub use crate::rand::ShiShuARng;

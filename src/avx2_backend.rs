@@ -14,7 +14,7 @@ pub struct State {
 
 impl State {
     #[target_feature(enable = "avx2")]
-    pub unsafe fn new(seed: [u64; STATE_LANES]) -> Self {
+    pub fn new(seed: [u64; STATE_LANES]) -> Self {
         let zero = _mm256_setzero_si256();
         let mut state = Self {
             state: [
@@ -60,20 +60,20 @@ impl State {
     }
 
     #[target_feature(enable = "avx2")]
-    pub unsafe fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
+    pub fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
         let mut bytes = [0u8; BLOCK_BYTES];
         self.generate_bytes_inner(&mut bytes);
         bytes_to_u64s(&bytes)
     }
 
-    #[cfg(feature = "rand")]
+    #[cfg(any(feature = "rand", feature = "rand9", test))]
     #[target_feature(enable = "avx2")]
-    pub unsafe fn generate_bytes(&mut self, output_slice: &mut [u8]) {
+    pub fn generate_bytes(&mut self, output_slice: &mut [u8]) {
         self.generate_bytes_inner(output_slice);
     }
 
     #[target_feature(enable = "avx2")]
-    unsafe fn generate_bytes_inner(&mut self, output_slice: &mut [u8]) {
+    fn generate_bytes_inner(&mut self, output_slice: &mut [u8]) {
         assert_eq!(output_slice.len() % BLOCK_BYTES, 0);
 
         let mut o0 = self.output[0];
@@ -90,10 +90,12 @@ impl State {
         let increment = _mm256_set_epi64x(1, 3, 5, 7);
 
         for output_chunk in output_slice.chunks_exact_mut(BLOCK_BYTES) {
-            _mm256_storeu_si256(output_chunk.as_mut_ptr().cast(), o0);
-            _mm256_storeu_si256(output_chunk[32..].as_mut_ptr().cast(), o1);
-            _mm256_storeu_si256(output_chunk[64..].as_mut_ptr().cast(), o2);
-            _mm256_storeu_si256(output_chunk[96..].as_mut_ptr().cast(), o3);
+            unsafe {
+                _mm256_storeu_si256(output_chunk.as_mut_ptr().cast(), o0);
+                _mm256_storeu_si256(output_chunk[32..].as_mut_ptr().cast(), o1);
+                _mm256_storeu_si256(output_chunk[64..].as_mut_ptr().cast(), o2);
+                _mm256_storeu_si256(output_chunk[96..].as_mut_ptr().cast(), o3);
+            }
 
             s1 = _mm256_add_epi64(s1, counter);
             s3 = _mm256_add_epi64(s3, counter);

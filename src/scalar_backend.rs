@@ -49,7 +49,7 @@ impl State {
         output
     }
 
-    #[cfg(feature = "rand")]
+    #[cfg(any(feature = "rand", feature = "rand9", test))]
     pub fn generate_bytes(&mut self, output_slice: &mut [u8]) {
         assert_eq!(output_slice.len() % BLOCK_BYTES, 0);
 

@@ -4,32 +4,32 @@ default-members = ["."]
 
 [package]
 name = "shishua"
-version = "0.2.0"
-authors = ["Dario Bartussek <d.bartussek@gmail.com>"]
-edition = "2018"
+version = "0.3.0"
+authors = ["Dario Bartussek <d.bartussek@gmail.com>", "Varun Madiath", "Jerome David <programingjd@gmail.com>"]
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Port of the shishua rng algorithm to Rust"
-repository = "https://github.com/dbartussek/shishua_rs"
+repository = "https://github.com/programingjd/shishua_rs"
 
 [[bench]]
 name = "bench"
 harness = false
 required-features = ["rand"]
 
-
 [features]
-rand = ["rand_core"]
-
+rand9 = ["dep:rand9"]
+rand = ["dep:rand"]
 default = ["rand"]
 
 # Compile bindings to the C implementation for benchmarks and tests
 __intern_c_bindings = ["cc"]
 
 [dependencies]
-rand_core = { version = "0.9.3", optional = true, default-features = false }
+rand9 = { package = "rand_core", version = "0.9", optional = true, default-features = false }
+rand = { version = "0.10", optional = true, default-features = false }
 
 [build-dependencies]
-cc = { version = "1.2.41", optional = true }
+cc = { version = "1.2", optional = true }
 
 [dev-dependencies]
-criterion = "0.7.0"
+criterion = "0.8"

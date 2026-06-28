@@ -89,11 +89,11 @@ impl ShiShuAState {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the current CPU supports SSE2 before using
+    /// The caller must ensure that the target CPU supports SSE2 before using
     /// the returned state. Prefer [`ShiShuAState::new`] for runtime dispatch.
     pub unsafe fn new_sse2(seed: [u64; STATE_LANES]) -> Self {
         Self {
-            inner: StateImpl::Sse2(sse2_backend::State::new(seed)),
+            inner: StateImpl::Sse2(unsafe { sse2_backend::State::new(seed) }),
         }
     }
 
@@ -102,11 +102,11 @@ impl ShiShuAState {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the current CPU supports SSSE3 before using
+    /// The caller must ensure that the target CPU supports SSSE3 before using
     /// the returned state. Prefer [`ShiShuAState::new`] for runtime dispatch.
     pub unsafe fn new_ssse3(seed: [u64; STATE_LANES]) -> Self {
         Self {
-            inner: StateImpl::Ssse3(ssse3_backend::State::new(seed)),
+            inner: StateImpl::Ssse3(unsafe { ssse3_backend::State::new(seed) }),
         }
     }
 
@@ -115,12 +115,12 @@ impl ShiShuAState {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the current CPU supports AVX2 and that the
+    /// The caller must ensure that the target CPU supports AVX2 and that the
     /// operating system has enabled AVX register state before using the
     /// returned state. Prefer [`ShiShuAState::new`] for runtime dispatch.
     pub unsafe fn new_avx2(seed: [u64; STATE_LANES]) -> Self {
         Self {
-            inner: StateImpl::Avx2(avx2_backend::State::new(seed)),
+            inner: StateImpl::Avx2(unsafe { avx2_backend::State::new(seed) }),
         }
     }
 
@@ -134,7 +134,7 @@ impl ShiShuAState {
     /// backend selection.
     pub unsafe fn new_neon(seed: [u64; STATE_LANES]) -> Self {
         Self {
-            inner: StateImpl::Neon(neon_backend::State::new(seed)),
+            inner: StateImpl::Neon(unsafe { neon_backend::State::new(seed) }),
         }
     }
 
@@ -186,8 +186,8 @@ impl ShiShuAState {
         }
     }
 
-    #[cfg(feature = "rand")]
-    pub(crate) fn generate_bytes(&mut self, output_slice: &mut [u8]) {
+    #[cfg(any(feature = "rand", feature = "rand9", test))]
+    pub fn generate_bytes(&mut self, output_slice: &mut [u8]) {
         match &mut self.inner {
             StateImpl::Scalar(state) => state.generate_bytes(output_slice),
             #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -223,7 +223,7 @@ fn sse2_available() -> bool {
     }
 
     #[cfg(target_arch = "x86")]
-    unsafe {
+    {
         (__cpuid(1).edx & (1 << 26)) != 0
     }
 }
@@ -235,25 +235,23 @@ fn ssse3_available() -> bool {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn avx2_available() -> bool {
-    unsafe {
-        if __cpuid(0).eax < 7 {
-            return false;
-        }
-
-        let leaf1 = __cpuid(1);
-        let avx = (leaf1.ecx & (1 << 28)) != 0;
-        let osxsave = (leaf1.ecx & (1 << 27)) != 0;
-        if !avx || !osxsave {
-            return false;
-        }
-
-        let xcr0 = _xgetbv(0);
-        if (xcr0 & 0b110) != 0b110 {
-            return false;
-        }
-
-        (__cpuid_count(7, 0).ebx & (1 << 5)) != 0
+    if __cpuid(0).eax < 7 {
+        return false;
     }
+
+    let leaf1 = __cpuid(1);
+    let avx = (leaf1.ecx & (1 << 28)) != 0;
+    let osxsave = (leaf1.ecx & (1 << 27)) != 0;
+    if !avx || !osxsave {
+        return false;
+    }
+
+    let xcr0 = unsafe { _xgetbv(0) };
+    if (xcr0 & 0b110) != 0b110 {
+        return false;
+    }
+
+    (__cpuid_count(7, 0).ebx & (1 << 5)) != 0
 }
 
 pub(crate) fn bytes_to_u64s(

@@ -14,7 +14,7 @@ pub struct State {
 
 impl State {
     #[target_feature(enable = "sse2,ssse3")]
-    pub unsafe fn new(seed: [u64; STATE_LANES]) -> Self {
+    pub fn new(seed: [u64; STATE_LANES]) -> Self {
         let zero = _mm_setzero_si128();
         let mut state = Self {
             state: [
@@ -48,20 +48,20 @@ impl State {
     }
 
     #[target_feature(enable = "sse2,ssse3")]
-    pub unsafe fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
+    pub fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
         let mut bytes = [0u8; BLOCK_BYTES];
         self.generate_bytes_inner(&mut bytes);
         bytes_to_u64s(&bytes)
     }
 
-    #[cfg(feature = "rand")]
+    #[cfg(any(feature = "rand", feature = "rand9", test))]
     #[target_feature(enable = "sse2,ssse3")]
-    pub unsafe fn generate_bytes(&mut self, output_slice: &mut [u8]) {
+    pub fn generate_bytes(&mut self, output_slice: &mut [u8]) {
         self.generate_bytes_inner(output_slice);
     }
 
     #[target_feature(enable = "sse2,ssse3")]
-    unsafe fn generate_bytes_inner(&mut self, output_slice: &mut [u8]) {
+    fn generate_bytes_inner(&mut self, output_slice: &mut [u8]) {
         assert_eq!(output_slice.len() % BLOCK_BYTES, 0);
 
         let mut state = self.state;
@@ -73,10 +73,12 @@ impl State {
 
         for output_chunk in output_slice.chunks_exact_mut(BLOCK_BYTES) {
             for (index, value) in output.iter().enumerate() {
-                _mm_storeu_si128(
-                    output_chunk[index * 16..].as_mut_ptr().cast(),
-                    *value,
-                );
+                unsafe {
+                    _mm_storeu_si128(
+                        output_chunk[index * 16..].as_mut_ptr().cast(),
+                        *value,
+                    );
+                }
             }
 
             for j in 0..2 {
@@ -119,7 +121,7 @@ impl State {
 }
 
 #[target_feature(enable = "sse2,ssse3")]
-unsafe fn set_epi64x(high: u64, low: u64) -> __m128i {
+fn set_epi64x(high: u64, low: u64) -> __m128i {
     _mm_set_epi32(
         (high >> 32) as i32,
         high as i32,
@@ -129,11 +131,11 @@ unsafe fn set_epi64x(high: u64, low: u64) -> __m128i {
 }
 
 #[target_feature(enable = "sse2,ssse3")]
-unsafe fn load_phi(index: usize) -> __m128i {
+fn load_phi(index: usize) -> __m128i {
     set_epi64x(PHI[index + 1], PHI[index])
 }
 
 #[target_feature(enable = "sse2,ssse3")]
-unsafe fn xor(lhs: __m128i, rhs: __m128i) -> __m128i {
+fn xor(lhs: __m128i, rhs: __m128i) -> __m128i {
     _mm_xor_si128(lhs, rhs)
 }

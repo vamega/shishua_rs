@@ -10,7 +10,8 @@ pub struct State {
 }
 
 impl State {
-    pub unsafe fn new(seed: [u64; STATE_LANES]) -> Self {
+    #[target_feature(enable = "neon")]
+    pub fn new(seed: [u64; STATE_LANES]) -> Self {
         let zero = vdupq_n_u64(0);
         let mut state = Self {
             state: [
@@ -43,18 +44,21 @@ impl State {
         state
     }
 
-    pub unsafe fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
+    #[target_feature(enable = "neon")]
+    pub fn round_unpack(&mut self) -> [u64; STATE_SIZE * STATE_LANES] {
         let mut bytes = [0u8; BLOCK_BYTES];
         self.generate_bytes_inner(&mut bytes);
         bytes_to_u64s(&bytes)
     }
 
-    #[cfg(feature = "rand")]
-    pub unsafe fn generate_bytes(&mut self, output_slice: &mut [u8]) {
+    #[cfg(any(feature = "rand", feature = "rand9", test))]
+    #[target_feature(enable = "neon")]
+    pub fn generate_bytes(&mut self, output_slice: &mut [u8]) {
         self.generate_bytes_inner(output_slice);
     }
 
-    unsafe fn generate_bytes_inner(&mut self, output_slice: &mut [u8]) {
+    #[target_feature(enable = "neon")]
+    fn generate_bytes_inner(&mut self, output_slice: &mut [u8]) {
         assert_eq!(output_slice.len() % BLOCK_BYTES, 0);
 
         let mut state = self.state;
@@ -66,10 +70,12 @@ impl State {
 
         for output_chunk in output_slice.chunks_exact_mut(BLOCK_BYTES) {
             for (index, value) in output.iter().enumerate() {
-                vst1q_u8(
-                    output_chunk[index * 16..].as_mut_ptr(),
-                    vreinterpretq_u8_u64(*value),
-                );
+                unsafe {
+                    vst1q_u8(
+                        output_chunk[index * 16..].as_mut_ptr(),
+                        vreinterpretq_u8_u64(*value),
+                    );
+                }
             }
 
             for j in 0..2 {
@@ -111,15 +117,18 @@ impl State {
     }
 }
 
-unsafe fn set_u64x2(low: u64, high: u64) -> uint64x2_t {
+#[target_feature(enable = "neon")]
+fn set_u64x2(low: u64, high: u64) -> uint64x2_t {
     vcombine_u64(vdup_n_u64(low), vdup_n_u64(high))
 }
 
-unsafe fn load_phi(index: usize) -> uint64x2_t {
+#[target_feature(enable = "neon")]
+fn load_phi(index: usize) -> uint64x2_t {
     set_u64x2(PHI[index], PHI[index + 1])
 }
 
-unsafe fn vext_u64x2(
+#[target_feature(enable = "neon")]
+fn vext_u64x2(
     rn: uint64x2_t,
     rm: uint64x2_t,
     amount: i32,
